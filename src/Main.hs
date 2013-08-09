@@ -1,26 +1,42 @@
-module Main (main) where
+module Main (main, Direction) where
 import           Control.Applicative
 import           Control.Monad
 import           Control.Concurrent
 import           Data.Maybe
 import           Data.List
 
-level :: Int -> String
-level t
-  | t < 53    = "level 0"
-  | t < 55    = "level 1"
-  | otherwise = "level auto"
+-- | For hysteresis we need state.  Fancontrol needs to remember if it
+-- currently lets the temperature go up or tries to cool down.
+data Direction = Up | Down
+  deriving Show
+
+level :: Direction -> Int -> (String, Direction)
+level Up t
+  | t >= 55   = ("level auto", Down)
+  | t >= 54   = ("level 1",    Up)
+  | otherwise = ("level 0",    Up)
+level Down t
+  | t <= 52   = ("level 0",    Up)
+  | otherwise = ("level auto", Down)
+
+command :: String -> IO ()
+command = writeFile "/proc/acpi/ibm/fan"
 
 main :: IO ()
 main = do
   command "watchdog 2"
-  forever $ do
-    temperature <- readTemperature
-    command (level temperature)
-    threadDelay dt
+  loop Up
+
+loop :: Direction -> IO ()
+loop direction = do
+  temperature <- readTemperature
+  let (arg, newDir) = level direction temperature
+  -- putStrLn $ concat $ intersperse " " $ [show temperature, show direction, arg]
+  command arg
+  threadDelay dt
+  loop newDir
   where
     dt = truncate (0.5 * 1e6 :: Double)
-    command = writeFile "/proc/acpi/ibm/fan"
 
 -- | Read temperature from all sensors and return the highest value.
 readTemperature :: IO Int
